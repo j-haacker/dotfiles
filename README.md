@@ -22,7 +22,7 @@ source ~/.zshrc   # or: source ~/.bashrc
 ## archive_nh_logs.sh
 `archive_nh_logs.sh` archives `nh` log files older than a cutoff into a rolling compressed archive at:
 
-`$HOME/nohup_outdated_logs.tar.gz`
+`./nohup_outdated_logs.tar.gz` (current working directory)
 
 Behavior:
 - Default cutoff is `1 week` (interpreted as `1 week ago`).
@@ -31,6 +31,7 @@ Behavior:
 - Only logs owned by the current user are considered (useful on shared drives).
 - Archive entries are stored with absolute paths.
 - Only files newly added to the archive in the current run are deleted from disk, and only after archive validation succeeds.
+- Default recursive scan root is the current working directory, so each project root can keep its own archive.
 
 Usage:
 
@@ -41,7 +42,7 @@ Usage:
 Examples:
 
 ```bash
-# Default: archive logs older than 1 week from $HOME
+# Default: archive logs older than 1 week from current directory
 ./archive_nh_logs.sh
 
 # Explicit timedelta cutoff

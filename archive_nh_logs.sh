@@ -35,10 +35,10 @@ Archive nh.sh log files older than the cutoff into a rolling tar.gz archive.
 Arguments:
   cutoff             Optional. Date/time understood by `date -d`, or a bare timedelta like "1 week".
                      Bare timedeltas are interpreted as "... ago". Default cutoff is "1 week".
-  search-root        Optional one or more directories to scan (default: "$HOME").
+  search-root        Optional one or more directories to scan (default: current directory).
 
 Archive output:
-  Always writes/updates "$HOME/nohup_outdated_logs.tar.gz".
+  Writes/updates "nohup_outdated_logs.tar.gz" in the current directory.
   Only log files owned by the current user are considered.
   Logs are stored with absolute paths.
   Only newly archived files are removed from disk, and only after archive validation succeeds.
@@ -46,7 +46,8 @@ Archive output:
 Examples:
   archive_nh_logs.sh
   archive_nh_logs.sh "1 week"
-  archive_nh_logs.sh "2026-02-01 13:00:00" "$HOME" "/var/tmp"
+  archive_nh_logs.sh "2026-02-01 13:00:00" .
+  archive_nh_logs.sh "2026-02-01 13:00:00" "$HOME/project-a" "$HOME/project-b"
 EOF
 }
 
@@ -55,8 +56,14 @@ if [[ "${1:-}" == "-h" || "${1:-}" == "--help" ]]; then
   exit 0
 fi
 
+if [[ "${1:-}" == --* ]]; then
+  printf 'Unknown option: %s\n' "$1" >&2
+  usage >&2
+  exit 1
+fi
+
 default_cutoff_input="1 week"
-archive_path="$HOME/nohup_outdated_logs.tar.gz"
+archive_path="$PWD/nohup_outdated_logs.tar.gz"
 archive_dir="$(dirname "$archive_path")"
 current_uid="$(id -u)"
 
@@ -75,7 +82,7 @@ cutoff_expr="$(normalize_cutoff_expr "$cutoff_input")"
 if [[ $# -gt 0 ]]; then
   search_roots=("$@")
 else
-  search_roots=("$HOME")
+  search_roots=("$PWD")
 fi
 
 mkdir -p "$archive_dir"
