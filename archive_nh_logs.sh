@@ -26,16 +26,86 @@ parse_cutoff_epoch() {
   date -d "$normalized" +%s 2>/dev/null
 }
 
+path_matches_exclude() {
+  local path="$1"
+  local root="$2"
+  local pattern="$3"
+  local rel
+
+  if [[ "$path" == "$root"/* ]]; then
+    rel="${path#$root/}"
+  else
+    rel="${path##*/}"
+  fi
+
+  # Absolute path pattern.
+  if [[ "$pattern" == /* ]]; then
+    if [[ "$pattern" == */ ]]; then
+      pattern="${pattern%/}"
+      [[ "$path" == "$pattern" || "$path" == "$pattern/"* ]]
+      return
+    fi
+    [[ "$path" == $pattern ]]
+    return
+  fi
+
+  # Directory-style pattern.
+  if [[ "$pattern" == */ ]]; then
+    pattern="${pattern%/}"
+    [[ "$rel" == "$pattern" || "$rel" == "$pattern/"* || "$rel" == */"$pattern" || "$rel" == */"$pattern/"* ]]
+    return
+  fi
+
+  # File/path glob pattern.
+  [[ "$rel" == $pattern || "$rel" == */$pattern || "${path##*/}" == $pattern ]]
+}
+
+should_exclude_path() {
+  local path="$1"
+  local root="$2"
+  local pattern
+
+  for pattern in "${exclude_patterns[@]}"; do
+    pattern="$(trim_spaces "$pattern")"
+    if [[ -z "$pattern" || "$pattern" == \#* ]]; then
+      continue
+    fi
+    if path_matches_exclude "$path" "$root" "$pattern"; then
+      return 0
+    fi
+  done
+
+  return 1
+}
+
+load_ignore_patterns() {
+  local file_path="$1"
+  local line
+
+  while IFS= read -r line || [[ -n "$line" ]]; do
+    line="$(trim_spaces "$line")"
+    if [[ -z "$line" || "$line" == \#* ]]; then
+      continue
+    fi
+    exclude_patterns+=("$line")
+  done < "$file_path"
+}
+
 usage() {
   cat <<'EOF'
-Usage: archive_nh_logs.sh [cutoff] [search-root ...]
+Usage: archive_nh_logs.sh [options] [cutoff] [search-root ...]
 
 Archive nh.sh log files older than the cutoff into a rolling tar.gz archive.
 
 Arguments:
   cutoff             Optional. Date/time understood by `date -d`, or a bare timedelta like "1 week".
                      Bare timedeltas are interpreted as "... ago". Default cutoff is "1 week".
-  search-root        Optional one or more directories to scan (default: current directory).
+  search-root        Optional one or more directories to scan recursively (default: current directory).
+
+Options:
+  --exclude <pattern>    Exclude files/paths by glob-like pattern. Repeatable.
+  --ignore-file <path>   Read excludes from file. Defaults to "./.nhignore" when present.
+  --no-ignore-file       Ignore ".nhignore" for this run.
 
 Archive output:
   Writes/updates "nohup_outdated_logs.tar.gz" in the current directory.
@@ -44,6 +114,7 @@ Archive output:
   Only newly archived files are removed from disk, and only after archive validation succeeds.
 
 Examples:
+  archive_nh_logs.sh --exclude "scripts/tmp/" --exclude "*_debug*.log"
   archive_nh_logs.sh
   archive_nh_logs.sh "1 week"
   archive_nh_logs.sh "2026-02-01 13:00:00" .
@@ -51,21 +122,85 @@ Examples:
 EOF
 }
 
-if [[ "${1:-}" == "-h" || "${1:-}" == "--help" ]]; then
-  usage
-  exit 0
+exclude_patterns=()
+ignore_file="$PWD/.nhignore"
+ignore_file_explicit=0
+positional_args=()
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    -h|--help)
+      usage
+      exit 0
+      ;;
+    --exclude)
+      if [[ $# -lt 2 ]]; then
+        printf 'Missing value for --exclude\n' >&2
+        exit 1
+      fi
+      exclude_patterns+=("$2")
+      shift 2
+      ;;
+    --exclude=*)
+      exclude_patterns+=("${1#*=}")
+      shift
+      ;;
+    --ignore-file)
+      if [[ $# -lt 2 ]]; then
+        printf 'Missing value for --ignore-file\n' >&2
+        exit 1
+      fi
+      ignore_file="$2"
+      ignore_file_explicit=1
+      shift 2
+      ;;
+    --ignore-file=*)
+      ignore_file="${1#*=}"
+      ignore_file_explicit=1
+      shift
+      ;;
+    --no-ignore-file)
+      ignore_file=""
+      shift
+      ;;
+    --)
+      shift
+      while [[ $# -gt 0 ]]; do
+        positional_args+=("$1")
+        shift
+      done
+      ;;
+    --*)
+      printf 'Unknown option: %s\n' "$1" >&2
+      usage >&2
+      exit 1
+      ;;
+    *)
+      positional_args+=("$1")
+      shift
+      ;;
+  esac
+done
+
+if [[ -n "$ignore_file" && "$ignore_file" != /* ]]; then
+  ignore_file="$PWD/$ignore_file"
 fi
 
-if [[ "${1:-}" == --* ]]; then
-  printf 'Unknown option: %s\n' "$1" >&2
-  usage >&2
+if [[ -n "$ignore_file" && -f "$ignore_file" ]]; then
+  load_ignore_patterns "$ignore_file"
+elif [[ "$ignore_file_explicit" -eq 1 ]]; then
+  printf 'Ignore file not found: %s\n' "$ignore_file" >&2
   exit 1
 fi
+
+set -- "${positional_args[@]}"
 
 default_cutoff_input="1 week"
 archive_path="$PWD/nohup_outdated_logs.tar.gz"
 archive_dir="$(dirname "$archive_path")"
 current_uid="$(id -u)"
+matching_owned_log_count=0
+excluded_log_count=0
 
 cutoff_input="$default_cutoff_input"
 if [[ $# -gt 0 ]] && cutoff_epoch="$(parse_cutoff_epoch "$1")"; then
@@ -114,6 +249,11 @@ for root in "${search_roots[@]}"; do
   while IFS= read -r -d '' file; do
     filename="${file##*/}"
     if [[ "$filename" =~ __([0-9]{8}-[0-9]{6})\.log$ ]]; then
+      matching_owned_log_count=$((matching_owned_log_count + 1))
+      if should_exclude_path "$file" "$root"; then
+        excluded_log_count=$((excluded_log_count + 1))
+        continue
+      fi
       log_stamp="${BASH_REMATCH[1]}"
       if [[ "$log_stamp" < "$cutoff_stamp" ]]; then
         printf '%s\n' "$file" >> "$candidate_files"
@@ -125,7 +265,38 @@ done
 sort -u -o "$candidate_files" "$candidate_files"
 
 if [[ ! -s "$candidate_files" ]]; then
-  printf 'No nh logs older than cutoff "%s" were found.\n' "$cutoff_expr"
+  if [[ "$matching_owned_log_count" -gt 0 ]]; then
+    if [[ "$excluded_log_count" -eq "$matching_owned_log_count" ]]; then
+      printf 'Found %s owned nh logs, but all were excluded by filters.\n' "$matching_owned_log_count"
+    elif [[ "$excluded_log_count" -gt 0 ]]; then
+      printf 'Found %s owned nh logs (%s excluded), but none older than cutoff "%s".\n' "$matching_owned_log_count" "$excluded_log_count" "$cutoff_expr"
+    else
+      printf 'Found %s owned nh logs, but none older than cutoff "%s".\n' "$matching_owned_log_count" "$cutoff_expr"
+    fi
+  else
+    printf 'No owned nh logs were found in the selected search roots.\n'
+
+    # Shared drives may surface logs as another owner; warn when that is detected.
+    found_unowned_logs=0
+    for root in "${search_roots[@]}"; do
+      if [[ "$root" != /* ]]; then
+        root="$PWD/$root"
+      fi
+      if [[ ! -d "$root" ]]; then
+        continue
+      fi
+      if find "$root" -type f -name 'nohup__*.log' ! -uid "$current_uid" -print -quit 2>/dev/null | grep -q .; then
+        found_unowned_logs=1
+        break
+      fi
+    done
+
+    if [[ "$found_unowned_logs" -eq 1 ]]; then
+      printf 'Found nh logs owned by other users; they are skipped by design.\n' >&2
+    fi
+  fi
+
+  printf 'Search roots: %s\n' "${search_roots[*]}"
   exit 0
 fi
 

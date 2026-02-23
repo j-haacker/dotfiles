@@ -32,12 +32,25 @@ Behavior:
 - Archive entries are stored with absolute paths.
 - Only files newly added to the archive in the current run are deleted from disk, and only after archive validation succeeds.
 - Default recursive scan root is the current working directory, so each project root can keep its own archive.
+- Exclusions can be defined with `--exclude` and in `.nhignore` (if present in current directory).
 
 Usage:
 
 ```bash
-./archive_nh_logs.sh [cutoff] [search-root ...]
+./archive_nh_logs.sh [options] [cutoff] [search-root ...]
 ```
+
+`search-root` directories are scanned recursively.
+
+Options:
+- `--exclude <pattern>`: exclude a path pattern (repeatable).
+- `--ignore-file <path>`: read exclude patterns from a file.
+- `--no-ignore-file`: disable reading `./.nhignore` for the run.
+
+Ignore patterns:
+- Blank lines and `#` comments are ignored.
+- `dir/` excludes that directory recursively.
+- Other patterns are glob-like matches against relative paths and basenames.
 
 Examples:
 
@@ -50,4 +63,14 @@ Examples:
 
 # Absolute date cutoff and custom roots
 ./archive_nh_logs.sh "2026-02-01 13:00:00" "$HOME" "/var/tmp"
+
+# Exclude paths from CLI
+./archive_nh_logs.sh --exclude "scripts/tmp/" --exclude "*_debug*.log"
+
+# Use .nhignore in the current directory (auto-loaded if present)
+cat > .nhignore <<'EOF'
+scripts/tmp/
+*_debug*.log
+EOF
+./archive_nh_logs.sh
 ```

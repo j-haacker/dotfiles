@@ -1,9 +1,17 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 mkdir -p "$HOME/.config/nh"
-curl -fsSL "https://raw.githubusercontent.com/j-haacker/dotfiles/dev/nh.sh" -o "$HOME/.config/nh/nh.sh"
-curl -fsSL "https://raw.githubusercontent.com/j-haacker/dotfiles/dev/archive_nh_logs.sh" -o "$HOME/.config/nh/archive_nh_logs.sh"
+
+if [[ -f "$script_dir/nh.sh" && -f "$script_dir/archive_nh_logs.sh" ]]; then
+  cp "$script_dir/nh.sh" "$HOME/.config/nh/nh.sh"
+  cp "$script_dir/archive_nh_logs.sh" "$HOME/.config/nh/archive_nh_logs.sh"
+else
+  curl -fsSL "https://raw.githubusercontent.com/j-haacker/dotfiles/main/nh.sh" -o "$HOME/.config/nh/nh.sh"
+  curl -fsSL "https://raw.githubusercontent.com/j-haacker/dotfiles/main/archive_nh_logs.sh" -o "$HOME/.config/nh/archive_nh_logs.sh"
+fi
+
 chmod +x "$HOME/.config/nh/archive_nh_logs.sh"
 
 if [ -n "${ZSH_VERSION:-}" ]; then
