@@ -3,25 +3,27 @@ Personal shell utils
 
 ## Codex synchronization
 
-`codex/AGENTS.md` and individual personal skills in `codex/skills/` are
-symlinked into `${CODEX_HOME:-$HOME/.codex}`. Unrelated files and correct
-links are left untouched; conflicts are preserved in adjacent `.bak.*` directories.
+GitHub (`j-haacker/dotfiles`, branch `main`) is the source of
+truth for `codex/AGENTS.md` and personal skills in `codex/skills/`. They are
+downloaded to `~/.local/share/codex-config/` and symlinked individually into
+`${CODEX_HOME:-$HOME/.codex}`. Unrelated files and correct links are left untouched;
+conflicts are preserved in adjacent `.bak.*` directories. No Git checkout is needed.
 
-Install once from this repository:
+Install once:
 
 ```bash
-bash codex/install.sh
+curl -fsSL https://raw.githubusercontent.com/j-haacker/dotfiles/main/codex/install.sh | bash
 ```
 
-A systemd user timer then automatically updates this repository every six hours
-while the user manager is running, using `git pull --ff-only`, and refreshes the
-links to pick up new skills. To trigger an update manually:
+A systemd user timer automatically downloads updates every six hours while the
+user manager is running and refreshes links to pick up new skills. Trigger an
+update manually:
 
 ```bash
 systemctl --user start codex-config-update.service
 ```
 
-Check the timer with `systemctl --user status codex-config-update.timer`.
+Inspect status with `systemctl --user status codex-config-update.{timer,service}`.
 
 ## nh.sh
 `nh` runs a command with `nohup` in the background and writes output to a timestamped log file (for example: `nohup__my_command__20260212-112753.log`).

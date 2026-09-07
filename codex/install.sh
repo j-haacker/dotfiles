@@ -1,7 +1,9 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-SOURCE_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+ARCHIVE_URL="https://codeload.github.com/j-haacker/dotfiles/tar.gz/refs/heads/main"
+DATA_DIR="$HOME/.local/share/codex-config"
+SOURCE_DIR="$DATA_DIR/current"
 TARGET_DIR="${CODEX_HOME:-$HOME/.codex}"
 # The service runs from a different working directory.
 TARGET_DIR="$(realpath -m -- "$TARGET_DIR")"
@@ -62,20 +64,40 @@ install_links() {
 }
 
 
-update_repository() {
-    local repo_root
-
-    if ! repo_root="$(git -C "$SOURCE_DIR" rev-parse --show-toplevel 2>/dev/null)"; then
-        echo "ERROR: $SOURCE_DIR is not inside a Git repository." >&2
-        exit 1
+update_copy() {
+    local previous="" snapshot
+    snapshot="$(mktemp -d -- "$DATA_DIR/.snapshot.XXXXXX")"
+    # A failed download or extraction must leave the current copy usable.
+    trap "rm -rf -- $(printf '%q' "$snapshot")" EXIT
+    curl -fsSL "$ARCHIVE_URL" -o "$snapshot/archive.tar.gz"
+    mkdir "$snapshot/content"
+    tar -xzf "$snapshot/archive.tar.gz" -C "$snapshot/content" \
+        --strip-components=2 --wildcards '*/codex/*'
+    rm -- "$snapshot/archive.tar.gz"
+    if [[ ! -f "$snapshot/content/AGENTS.md" ||
+          ! -d "$snapshot/content/skills" ||
+          ! -f "$snapshot/content/install.sh" ]]; then
+        echo "ERROR: GitHub archive is missing the Codex configuration." >&2
+        return 1
     fi
+    bash -n "$snapshot/content/install.sh"
 
-    echo "Updating repository:"
-    echo "  $repo_root"
-
-    git -C "$repo_root" pull --ff-only
-
+    if [[ -L "$SOURCE_DIR" ]]; then
+        previous="$(readlink -- "$SOURCE_DIR")"
+    fi
+    if [[ "$previous" != "$DATA_DIR"/.snapshot.??????/content ]]; then
+        backup_existing "$SOURCE_DIR"
+        previous=""
+    fi
+    ln -s -- "$snapshot/content" "$snapshot/current"
+    mv -Tf -- "$snapshot/current" "$SOURCE_DIR"
+    trap - EXIT
     install_links
+
+    # Only remove snapshots created by this installer, after links are refreshed.
+    if [[ -n "$previous" ]]; then
+        rm -rf -- "${previous%/content}"
+    fi
 }
 
 
@@ -136,21 +158,19 @@ EOF
 
 
 case "${1:-}" in
-    --update)
-        update_repository
-        ;;
-
-    "")
-        install_links
-        install_systemd_timer
-
-        echo
-        echo "Codex configuration installed from:"
-        echo "  $SOURCE_DIR"
-        ;;
-
+    ""|--update) ;;
     *)
         echo "Usage: $0 [--update]" >&2
         exit 2
         ;;
 esac
+
+mkdir -p "$DATA_DIR"
+# Serialize timer updates and manual installations.
+exec 9> "$DATA_DIR/.lock"
+flock 9
+update_copy
+if [[ "${1:-}" != --update ]]; then
+    install_systemd_timer
+fi
+echo "Codex configuration synchronized from GitHub into $SOURCE_DIR"
