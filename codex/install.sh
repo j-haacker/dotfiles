@@ -3,11 +3,23 @@ set -euo pipefail
 
 SOURCE_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 TARGET_DIR="${CODEX_HOME:-$HOME/.codex}"
+# The service runs from a different working directory.
+TARGET_DIR="$(realpath -m -- "$TARGET_DIR")"
 SKILLS_TARGET="$TARGET_DIR/skills"
 
 SYSTEMD_DIR="$HOME/.config/systemd/user"
 SERVICE_NAME="codex-config-update.service"
 TIMER_NAME="codex-config-update.timer"
+
+backup_existing() {
+    local target="$1"
+    if [[ -e "$target" || -L "$target" ]]; then
+        local backup
+        backup="$(mktemp -d -- "${target}.bak.XXXXXX")"
+        echo "BACK: $target -> $backup/original"
+        mv -T -- "$target" "$backup/original"
+    fi
+}
 
 backup_and_link() {
     local source="$1"
@@ -21,11 +33,7 @@ backup_and_link() {
     fi
 
     # Preserve anything already present.
-    if [[ -e "$target" || -L "$target" ]]; then
-        local backup="${target}.bak.$(date +%Y%m%d-%H%M%S)"
-        echo "BACK: $target -> $backup"
-        mv -- "$target" "$backup"
-    fi
+    backup_existing "$target"
 
     echo "LINK: $target -> $source"
     ln -s -- "$source" "$target"
@@ -33,6 +41,9 @@ backup_and_link() {
 
 
 install_links() {
+    if [[ -L "$SKILLS_TARGET" || ! -d "$SKILLS_TARGET" ]]; then
+        backup_existing "$SKILLS_TARGET"
+    fi
     mkdir -p "$TARGET_DIR" "$SKILLS_TARGET"
 
     backup_and_link \
@@ -68,30 +79,53 @@ update_repository() {
 }
 
 
+# Quote a systemd string, including literal specifiers and control characters.
+systemd_quote() {
+    local value="$1"
+    value="${value//\\/\\\\}"
+    value="${value//\"/\\\"}"
+    value="${value//%/%%}"
+    value="${value//$'\n'/\\n}"
+    value="${value//$'\r'/\\r}"
+    value="${value//$'\t'/\\t}"
+    printf '"%s"' "$value"
+}
+
 install_systemd_timer() {
     mkdir -p "$SYSTEMD_DIR"
+    local staging unit
+    staging="$(mktemp -d -- "$SYSTEMD_DIR/.codex-config.XXXXXX")"
 
-    cat > "$SYSTEMD_DIR/$SERVICE_NAME" <<EOF
+    cat > "$staging/$SERVICE_NAME" <<EOF
 [Unit]
 Description=Update Codex configuration
 
 [Service]
 Type=oneshot
-ExecStart=$SOURCE_DIR/install.sh --update
+Environment=$(systemd_quote "CODEX_HOME=$TARGET_DIR")
+# Disable environment expansion in the literal installer path.
+ExecStart=:bash $(systemd_quote "$SOURCE_DIR/install.sh") --update
 EOF
 
-    cat > "$SYSTEMD_DIR/$TIMER_NAME" <<'EOF'
+    cat > "$staging/$TIMER_NAME" <<'EOF'
 [Unit]
 Description=Periodically update Codex configuration
 
 [Timer]
 OnBootSec=5min
 OnUnitActiveSec=6h
-Persistent=true
 
 [Install]
 WantedBy=timers.target
 EOF
+
+    for unit in "$SERVICE_NAME" "$TIMER_NAME"; do
+        if ! cmp -s -- "$staging/$unit" "$SYSTEMD_DIR/$unit"; then
+            backup_existing "$SYSTEMD_DIR/$unit"
+            mv -T -- "$staging/$unit" "$SYSTEMD_DIR/$unit"
+        fi
+    done
+    rm -r -- "$staging"
 
     systemctl --user daemon-reload
     systemctl --user enable --now "$TIMER_NAME"
