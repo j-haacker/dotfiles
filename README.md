@@ -1,6 +1,28 @@
 # dotfiles
 Personal shell utils
 
+## Codex synchronization
+
+`codex/AGENTS.md` and individual personal skills in `codex/skills/` are
+symlinked into `${CODEX_HOME:-$HOME/.codex}`. Unrelated files and correct
+links are left untouched; conflicts are preserved in adjacent `.bak.*` directories.
+
+Install once from this repository:
+
+```bash
+bash codex/install.sh
+```
+
+A systemd user timer then automatically updates this repository every six hours
+while the user manager is running, using `git pull --ff-only`, and refreshes the
+links to pick up new skills. To trigger an update manually:
+
+```bash
+systemctl --user start codex-config-update.service
+```
+
+Check the timer with `systemctl --user status codex-config-update.timer`.
+
 ## nh.sh
 `nh` runs a command with `nohup` in the background and writes output to a timestamped log file (for example: `nohup__my_command__20260212-112753.log`).
 
