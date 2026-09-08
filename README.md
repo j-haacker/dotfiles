@@ -1,4 +1,5 @@
 # dotfiles
+
 Personal shell utils
 
 ## Codex synchronization
@@ -26,9 +27,11 @@ systemctl --user start codex-config-update.service
 Inspect status with `systemctl --user status codex-config-update.{timer,service}`.
 
 ## nh.sh
+
 `nh` runs a command with `nohup` in the background and writes output to a timestamped log file (for example: `nohup__my_command__20260212-112753.log`).
 
 ### Download + install
+
 Run this from any shell:
 
 ```bash
@@ -44,11 +47,13 @@ source ~/.zshrc   # or: source ~/.bashrc
 ```
 
 ## archive_nh_logs.sh
+
 `archive_nh_logs.sh` archives `nh` log files older than a cutoff into a rolling compressed archive at:
 
 `./nohup_outdated_logs.tar.gz` (current working directory)
 
 Behavior:
+
 - Default cutoff is `1 week` (interpreted as `1 week ago`).
 - Bare timedeltas like `1 week`, `2 days`, and `3 months` are accepted.
 - Absolute/relative `date -d` expressions are accepted.
@@ -67,11 +72,13 @@ Usage:
 `search-root` directories are scanned recursively.
 
 Options:
+
 - `--exclude <pattern>`: exclude a path pattern (repeatable).
 - `--ignore-file <path>`: read exclude patterns from a file.
 - `--no-ignore-file`: disable reading `./.nhignore` for the run.
 
 Ignore patterns:
+
 - Blank lines and `#` comments are ignored.
 - `dir/` excludes that directory recursively.
 - Other patterns are glob-like matches against relative paths and basenames.
