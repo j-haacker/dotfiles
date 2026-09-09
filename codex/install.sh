@@ -135,7 +135,7 @@ Description=Periodically update Codex configuration
 
 [Timer]
 OnBootSec=5min
-OnUnitActiveSec=6h
+OnUnitActiveSec=1d
 
 [Install]
 WantedBy=timers.target

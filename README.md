@@ -16,7 +16,7 @@ Install once:
 curl -fsSL https://raw.githubusercontent.com/j-haacker/dotfiles/main/codex/install.sh | bash
 ```
 
-A systemd user timer automatically downloads updates every six hours while the
+A systemd user timer automatically downloads updates once per day while the
 user manager is running and refreshes links to pick up new skills. Trigger an
 update manually:
 
